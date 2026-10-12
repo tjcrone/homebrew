@@ -1,0 +1,132 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "fileutils"
+require "net/http"
+require "optparse"
+require "pathname"
+require "tempfile"
+require "timeout"
+require "uri"
+
+ROOT = Pathname(__dir__).parent
+UPSTREAM_BASE = "https://raw.githubusercontent.com/Homebrew/homebrew-cask/main/Casks/c"
+MARKER = "  # Local workaround: clear quarantine after staging and before any executable artifact runs."
+WORKAROUND = [
+  MARKER,
+  "  preflight_steps do",
+  "    on_macos do",
+  '      run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{staged_path}}"]',
+  "    end",
+  "  end",
+].join("\n")
+
+SPECS = {
+  "codex.rb" => {
+    token: "codex",
+    anchor: '  binary "bin/codex"',
+    required: ['  generate_completions_from_executable "bin/codex", "completion"'],
+  },
+  "claude-code.rb" => {
+    token: "claude-code",
+    anchor: '  binary "claude"',
+    forbidden: ["generate_completions_from_executable"],
+  },
+}.freeze
+
+def abort_update(message)
+  warn "update-casks: #{message}"
+  exit 1
+end
+
+def fetch(uri, redirects = 5)
+  abort_update("too many redirects fetching #{uri}") if redirects.negative?
+
+  response = Net::HTTP.get_response(uri, { "User-Agent" => "local-homebrew-cask-updater" })
+  case response
+  when Net::HTTPSuccess
+    response.body
+  when Net::HTTPRedirection
+    location = response["location"]
+    abort_update("redirect without Location fetching #{uri}") unless location
+
+    fetch(URI.join(uri, location), redirects - 1)
+  else
+    abort_update("failed to fetch #{uri}: HTTP #{response.code}")
+  end
+rescue SystemCallError, SocketError, Timeout::Error => e
+  abort_update("failed to fetch #{uri}: #{e.message}")
+end
+
+def upstream_source(filename, source_dir)
+  return (source_dir/filename).read if source_dir
+
+  fetch(URI("#{UPSTREAM_BASE}/#{filename}"))
+rescue Errno::ENOENT => e
+  abort_update(e.message)
+end
+
+def insert_workaround(filename, source, spec)
+  token_line = %(cask "#{spec.fetch(:token)}" do)
+  abort_update("#{filename}: expected exactly one #{token_line.inspect}") unless source.lines.count { |line| line.chomp == token_line } == 1
+  abort_update("#{filename}: upstream already contains the local marker") if source.include?(MARKER)
+
+  flight_blocks = source.scan(/^  (?:preflight|preflight_steps)\b/)
+  abort_update("#{filename}: upstream added a preflight hook; merge requires review") unless flight_blocks.empty?
+
+  spec.fetch(:required, []).each do |line|
+    abort_update("#{filename}: expected exactly one #{line.inspect}") unless source.lines.count { |candidate| candidate.chomp == line } == 1
+  end
+
+  spec.fetch(:forbidden, []).each do |text|
+    abort_update("#{filename}: unexpected #{text.inspect}; merge requires review") if source.include?(text)
+  end
+
+  anchor = spec.fetch(:anchor)
+  abort_update("#{filename}: expected exactly one #{anchor.inspect}") unless source.lines.count { |line| line.chomp == anchor } == 1
+
+  patched = source.sub("#{anchor}\n", "#{WORKAROUND}\n\n#{anchor}\n")
+  abort_update("#{filename}: failed to insert workaround") if patched == source
+
+  patched
+end
+
+def atomic_write(path, contents)
+  path.dirname.mkpath
+  Tempfile.create([path.basename.to_s, ".tmp"], path.dirname) do |file|
+    file.write(contents)
+    file.flush
+    file.fsync
+    FileUtils.chmod(path.stat.mode, file.path) if path.exist?
+    File.rename(file.path, path)
+  end
+end
+
+options = { check: false, source_dir: nil }
+OptionParser.new do |parser|
+  parser.banner = "Usage: script/update-casks [--check] [--source-dir DIR]"
+  parser.on("--check", "Exit nonzero if generated casks differ from the repository") { options[:check] = true }
+  parser.on("--source-dir DIR", String, "Read upstream casks from DIR instead of GitHub") do |dir|
+    options[:source_dir] = Pathname(dir)
+  end
+end.parse!
+abort_update("unexpected arguments: #{ARGV.join(' ')}") unless ARGV.empty?
+
+generated = SPECS.to_h do |filename, spec|
+  source = upstream_source(filename, options[:source_dir])
+  [filename, insert_workaround(filename, source, spec)]
+end
+
+if options[:check]
+  changed = generated.each_with_object([]) do |(filename, contents), filenames|
+    path = ROOT/"Casks"/filename
+    filenames << filename unless path.exist? && path.read == contents
+  end
+  abort_update("out of date: #{changed.join(', ')}") unless changed.empty?
+
+  puts "Local casks match patched upstream definitions."
+  exit
+end
+
+generated.each { |filename, contents| atomic_write(ROOT/"Casks"/filename, contents) }
+puts "Updated #{generated.keys.join(' and ')} from Homebrew/homebrew-cask."
