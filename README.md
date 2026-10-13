@@ -37,22 +37,12 @@ Claude desktop app and is not customized here.)
 
 ## Set up the tap
 
-For a local-only tap, register this repository under the
-`tjcrone/unquarantined` identifier:
-
-```sh
-brew tap tjcrone/unquarantined "/Volumes/Macintosh HD CS/github/tjcrone/homebrew"
-```
-
-If the repository is published as `tjcrone/homebrew-unquarantined`, this is
-simply:
+The public repository is named `tjcrone/homebrew-unquarantined`, so Homebrew
+can register it by its short tap name:
 
 ```sh
 brew tap tjcrone/unquarantined
 ```
-
-For a differently named remote repository, supply its Git URL as the second
-argument to `brew tap`.
 
 Install the fully qualified casks so Homebrew records this tap as their source:
 
@@ -100,29 +90,41 @@ brew() {
 ```
 
 The wrapper changes only `brew upgrade`. All other `brew` commands go directly
-to Homebrew. `brew upgrade` runs `script/brew-upgrade`, which:
+to Homebrew. The wrapper runs the real `brew update` first so the tap checkout
+receives any automated cask commits, then runs the real `brew upgrade` with the
+original arguments. If `brew update` fails, the upgrade does not run.
 
-1. Refuses to proceed if the source repository has unrelated changes.
-2. Downloads and patches the current official Codex and Claude Code casks.
-3. Runs the updater tests when either generated cask changes.
-4. Stages only the two cask files and creates a signed commit.
-5. Runs the real `brew update`, allowing Homebrew's tap checkout to fetch that
-   local commit.
-6. Runs the real `brew upgrade` with the original arguments.
+To bypass this automation deliberately, invoke `command brew upgrade` from
+zsh.
+
+## Automated upstream updates
+
+The `Update casks` GitHub Action runs hourly at minute 17 and can also be run
+manually. It:
+
+1. Downloads and patches the current official Codex and Claude Code casks.
+2. Runs the updater and local-upgrade tests.
+3. Refuses to publish if the updater changes anything outside the two casks.
+4. Creates one atomic `Update casks from upstream` commit when either cask
+   changed.
 
 The updater validates the expected cask tokens and artifact shapes before
 inserting the local `preflight_steps` blocks. It refuses to proceed if an
 expected anchor is missing or duplicated, if upstream adds its own preflight
-hook, or if Claude Code gains a generated-completion artifact. No Homebrew
-update or upgrade runs after a validation, test, or signing failure.
+hook, or if Claude Code gains a generated-completion artifact. Those cases
+leave the Action failed without changing the repository.
 
-If GPG signing fails, the generated cask changes remain staged. After making
-pinentry available, run `brew upgrade` again. The orchestrator retries only
-when those existing cask files still exactly match the current patched
-upstream result.
+The Action has only `contents: write` permission. It uses GitHub's
+`createCommitOnBranch` mutation without custom author or committer data, so
+GitHub creates a verified bot-signed commit. The mutation includes the expected
+current commit SHA and fails instead of overwriting a concurrent update.
 
-To bypass this automation deliberately, invoke `command brew upgrade` from
-zsh.
+To request an immediate check from the command line after the repository is
+published:
+
+```sh
+gh workflow run update-casks.yml --repo tjcrone/homebrew-unquarantined
+```
 
 ## Manual maintenance
 
@@ -140,6 +142,7 @@ To regenerate manually and run all tests:
 script/update-casks
 ruby test/update_casks_test.rb
 ruby test/brew_upgrade_test.rb
+ruby test/update_workflow_test.rb
 ```
 
 For an offline consistency check against cask sources in a directory:

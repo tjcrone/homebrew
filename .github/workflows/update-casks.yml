@@ -1,0 +1,86 @@
+name: Update casks
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-casks
+  cancel-in-progress: false
+
+jobs:
+  update:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Generate casks from upstream
+        run: script/update-casks
+
+      - name: Run tests
+        run: |
+          ruby test/update_casks_test.rb
+          ruby test/brew_upgrade_test.rb
+          ruby test/update_workflow_test.rb
+
+      - name: Check generated changes
+        id: changes
+        run: |
+          if ! git diff --quiet -- . ':(exclude)Casks/claude-code.rb' ':(exclude)Casks/codex.rb'; then
+            git diff --name-only
+            echo "The updater changed an unexpected path." >&2
+            exit 1
+          fi
+
+          if git diff --quiet -- Casks/claude-code.rb Casks/codex.rb; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            git diff --check -- Casks/claude-code.rb Casks/codex.rb
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish verified update
+        if: steps.changes.outputs.changed == 'true'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const fs = require("fs");
+            const paths = ["Casks/claude-code.rb", "Casks/codex.rb"];
+            const additions = paths.map((path) => ({
+              path,
+              contents: fs.readFileSync(path).toString("base64"),
+            }));
+
+            const result = await github.graphql(
+              `mutation($input: CreateCommitOnBranchInput!) {
+                createCommitOnBranch(input: $input) {
+                  commit {
+                    oid
+                    url
+                  }
+                }
+              }`,
+              {
+                input: {
+                  branch: {
+                    repositoryNameWithOwner: `${context.repo.owner}/${context.repo.repo}`,
+                    branchName: context.ref.replace("refs/heads/", ""),
+                  },
+                  expectedHeadOid: context.sha,
+                  fileChanges: { additions },
+                  message: { headline: "Update casks from upstream" },
+                },
+              },
+            );
+
+            const commit = result.createCommitOnBranch.commit;
+            core.info(`Published ${commit.oid}: ${commit.url}`);

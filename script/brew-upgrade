@@ -1,40 +1,16 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-require "open3"
-require "pathname"
-require "rbconfig"
-
-ROOT = Pathname(__dir__).parent
-CASK_PATHS = ["Casks/claude-code.rb", "Casks/codex.rb"].freeze
-
 def fail_upgrade(message)
   warn "brew-upgrade: #{message}"
   exit 1
 end
 
-def capture!(*command)
-  stdout, stderr, status = Open3.capture3(*command, chdir: ROOT.to_s)
-  fail_upgrade("#{command.join(' ')} failed:\n#{stderr}") unless status.success?
-
-  stdout
-end
-
 def run!(*command)
-  return if system(*command, chdir: ROOT.to_s)
+  return if system(*command)
 
   status = $?&.exitstatus
   fail_upgrade("#{command.join(' ')} failed#{status ? " with status #{status}" : nil}")
-end
-
-def changed_paths
-  commands = [
-    ["git", "diff", "--name-only", "-z"],
-    ["git", "diff", "--cached", "--name-only", "-z"],
-    ["git", "ls-files", "--others", "--exclude-standard", "-z"],
-  ]
-
-  commands.flat_map { |command| capture!(*command).split("\0") }.reject(&:empty?).uniq.sort
 end
 
 def executable_on_path(name)
@@ -45,36 +21,8 @@ def executable_on_path(name)
   nil
 end
 
-initial_changes = changed_paths
-unexpected_changes = initial_changes - CASK_PATHS
-unless unexpected_changes.empty?
-  fail_upgrade("repository has unrelated changes: #{unexpected_changes.join(', ')}")
-end
-
-updater = ROOT/"script/update-casks"
-if initial_changes.empty?
-  run!(updater.to_s)
-else
-  puts "Retrying a previously generated cask update."
-  unless system(updater.to_s, "--check", chdir: ROOT.to_s)
-    fail_upgrade("existing cask changes do not match current patched upstream casks")
-  end
-end
-
-updated_paths = changed_paths
-unexpected_updates = updated_paths - CASK_PATHS
-unless unexpected_updates.empty?
-  fail_upgrade("updater changed unexpected paths: #{unexpected_updates.join(', ')}")
-end
-
-unless updated_paths.empty?
-  run!(RbConfig.ruby, (ROOT/"test/update_casks_test.rb").to_s)
-  run!("git", "add", "--", *CASK_PATHS)
-  run!("git", "commit", "-S", "-m", "Update casks from upstream")
-end
-
 brew = executable_on_path("brew")
 fail_upgrade("could not find the Homebrew executable on PATH") unless brew
 
 run!(brew, "update")
-Dir.chdir(ROOT) { exec(brew, "upgrade", *ARGV) }
+exec(brew, "upgrade", *ARGV)
