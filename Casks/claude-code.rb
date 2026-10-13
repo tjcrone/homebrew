@@ -7,6 +7,7 @@ cask "claude-code" do
          intel:        "f1863213e4f55aaadc2e6ee617f934ada29930e5de4c5e5f8f9e34a0d594fdd7",
          arm64_linux:  "e4daf793d1e74fb0d9874dd09e98690bbfd7be515f78a87fd05b9e2b4bb33b03",
          x86_64_linux: "3920489a5109cff5786a1a392c25277408ff22bc796d5edb9c16a60e5a1718f0"
+
   url "https://downloads.claude.ai/claude-code-releases/#{version}/#{os}-#{arch}/claude"
   name "Claude Code"
   desc "Terminal-based AI coding assistant"
@@ -27,6 +28,7 @@ cask "claude-code" do
   end
 
   binary "claude"
+
   zap trash: [
         "~/.cache/claude",
         "~/.claude.json*",
