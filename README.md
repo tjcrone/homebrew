@@ -92,8 +92,15 @@ brew() {
 
 The wrapper changes only `brew upgrade`. All other `brew` commands go directly
 to Homebrew. The wrapper runs the real `brew update` first so the tap checkout
-receives any automated cask commits, then runs the real `brew upgrade` with the
-original arguments. If `brew update` fails, the upgrade does not run.
+receives any automated cask commits, then runs the real `brew upgrade`. If
+`brew update` fails, the upgrade does not run.
+
+Homebrew resolves an explicitly named, unqualified cask such as `codex` from
+the official cask source even when its install receipt names this tap. To keep
+the normal commands safe, the wrapper rewrites exact `codex` and `claude-code`
+arguments to their `tjcrone/homebrew` names. It leaves unrelated packages,
+already-qualified names, options, formula-only upgrades, and a bare
+`brew upgrade` unchanged.
 
 To bypass this automation deliberately, invoke `command brew upgrade` from
 zsh.

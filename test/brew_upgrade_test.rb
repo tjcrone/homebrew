@@ -22,11 +22,40 @@ class BrewUpgradeTest < Minitest::Test
     FileUtils.remove_entry(@tempdir)
   end
 
-  def test_updates_before_upgrading_and_forwards_arguments
+  def test_updates_before_upgrading_and_qualifies_custom_cask
     output, status = run_orchestrator("--cask", "codex")
 
     assert_predicate status, :success?, output
-    assert_equal [["update"], ["upgrade", "--cask", "codex"]], brew_invocations
+    assert_equal [["update"], ["upgrade", "--cask", "tjcrone/homebrew/codex"]], brew_invocations
+  end
+
+  def test_qualifies_both_custom_casks_and_preserves_other_arguments
+    output, status = run_orchestrator(
+      "--greedy", "codex", "wget", "claude-code", "homebrew/cask/codex"
+    )
+
+    assert_predicate status, :success?, output
+    assert_equal [
+      ["update"],
+      [
+        "upgrade", "--greedy", "tjcrone/homebrew/codex", "wget",
+        "tjcrone/homebrew/claude-code", "homebrew/cask/codex"
+      ],
+    ], brew_invocations
+  end
+
+  def test_formula_only_upgrade_does_not_rewrite_names
+    output, status = run_orchestrator("--formula", "codex")
+
+    assert_predicate status, :success?, output
+    assert_equal [["update"], ["upgrade", "--formula", "codex"]], brew_invocations
+  end
+
+  def test_bare_upgrade_remains_bare
+    output, status = run_orchestrator
+
+    assert_predicate status, :success?, output
+    assert_equal [["update"], ["upgrade"]], brew_invocations
   end
 
   def test_update_failure_stops_before_upgrade

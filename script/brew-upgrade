@@ -1,9 +1,20 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+CUSTOM_CASKS = {
+  "codex" => "tjcrone/homebrew/codex",
+  "claude-code" => "tjcrone/homebrew/claude-code",
+}.freeze
+
 def fail_upgrade(message)
   warn "brew-upgrade: #{message}"
   exit 1
+end
+
+def qualify_custom_casks(arguments)
+  return arguments if arguments.include?("--formula")
+
+  arguments.map { |argument| CUSTOM_CASKS.fetch(argument, argument) }
 end
 
 def run!(*command)
@@ -25,4 +36,4 @@ brew = executable_on_path("brew")
 fail_upgrade("could not find the Homebrew executable on PATH") unless brew
 
 run!(brew, "update")
-exec(brew, "upgrade", *ARGV)
+exec(brew, "upgrade", *qualify_custom_casks(ARGV))
