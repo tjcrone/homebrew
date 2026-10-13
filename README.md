@@ -41,7 +41,7 @@ For a local-only tap, register this repository under the
 `tjcrone/unquarantined` identifier:
 
 ```sh
-brew tap tjcrone/unquarantined "$(pwd)"
+brew tap tjcrone/unquarantined "/Volumes/Macintosh HD CS/github/tjcrone/homebrew"
 ```
 
 If the repository is published as `tjcrone/homebrew-unquarantined`, this is
@@ -72,13 +72,8 @@ brew reinstall --cask tjcrone/unquarantined/claude-code
 A fully qualified install also trusts only those named casks on current
 Homebrew releases. It does not require trusting every package in the tap.
 
-Homebrew records the originating tap in each cask's install receipt. Normal
-commands then keep using these definitions:
-
-```sh
-brew update
-brew upgrade
-```
+Homebrew records the originating tap in each cask's install receipt, so later
+upgrades continue using these definitions.
 
 You can confirm the source with:
 
@@ -88,31 +83,48 @@ brew info --cask tjcrone/unquarantined/codex tjcrone/unquarantined/claude-code
 
 The `From:` lines should name `tjcrone/unquarantined`.
 
-## Update from upstream
+## Automatic upgrades
 
-Run:
+Add this wrapper to `~/.zshrc` and start a new shell (or run
+`source ~/.zshrc`):
 
-```sh
-script/update-casks
-git diff -- Casks
-ruby test/update_casks_test.rb
+```zsh
+brew() {
+  if (( $# > 0 )) && [[ $1 == upgrade ]]; then
+    shift
+    "/Volumes/Macintosh HD CS/github/tjcrone/homebrew/script/brew-upgrade" "$@"
+  else
+    command brew "$@"
+  fi
+}
 ```
 
-The updater downloads the two current casks from
-`Homebrew/homebrew-cask`, validates the expected cask token and artifact shape,
-and inserts the local `preflight_steps` block immediately before the binary
-artifact. It builds both results before writing either file. It refuses to
-proceed if an expected anchor is missing or duplicated, if upstream adds its
-own preflight hook, or if Claude Code gains a generated-completion artifact.
-Those cases require a manual review because hook placement may no longer be
-unambiguous.
+The wrapper changes only `brew upgrade`. All other `brew` commands go directly
+to Homebrew. `brew upgrade` runs `script/brew-upgrade`, which:
 
-This synchronization is intentionally explicit: `brew update` updates only
-the committed contents of this tap; it does not merge changes from the official
-`homebrew/cask` repository. Run `script/update-casks` periodically, review and
-commit its changes, and push them if the tap uses GitHub. A tapped clone will
-receive the commit on the next `brew update`, after which `brew upgrade` sees
-the new cask versions.
+1. Refuses to proceed if the source repository has unrelated changes.
+2. Downloads and patches the current official Codex and Claude Code casks.
+3. Runs the updater tests when either generated cask changes.
+4. Stages only the two cask files and creates a signed commit.
+5. Runs the real `brew update`, allowing Homebrew's tap checkout to fetch that
+   local commit.
+6. Runs the real `brew upgrade` with the original arguments.
+
+The updater validates the expected cask tokens and artifact shapes before
+inserting the local `preflight_steps` blocks. It refuses to proceed if an
+expected anchor is missing or duplicated, if upstream adds its own preflight
+hook, or if Claude Code gains a generated-completion artifact. No Homebrew
+update or upgrade runs after a validation, test, or signing failure.
+
+If GPG signing fails, the generated cask changes remain staged. After making
+pinentry available, run `brew upgrade` again. The orchestrator retries only
+when those existing cask files still exactly match the current patched
+upstream result.
+
+To bypass this automation deliberately, invoke `command brew upgrade` from
+zsh.
+
+## Manual maintenance
 
 To check for upstream drift without changing files, run:
 
@@ -121,6 +133,14 @@ script/update-casks --check
 ```
 
 It exits nonzero when either local cask is behind its patched upstream result.
+
+To regenerate manually and run all tests:
+
+```sh
+script/update-casks
+ruby test/update_casks_test.rb
+ruby test/brew_upgrade_test.rb
+```
 
 For an offline consistency check against cask sources in a directory:
 
