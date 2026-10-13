@@ -37,26 +37,27 @@ Claude desktop app and is not customized here.)
 
 ## Set up the tap
 
-The public repository is named `tjcrone/homebrew-unquarantined`, so Homebrew
-can register it by its short tap name:
+The public repository is named `tjcrone/homebrew`. Because that name does not
+follow Homebrew's `homebrew-<tap>` GitHub convention, register it with an
+explicit URL:
 
 ```sh
-brew tap tjcrone/unquarantined
+brew tap tjcrone/homebrew https://github.com/tjcrone/homebrew.git
 ```
 
 Install the fully qualified casks so Homebrew records this tap as their source:
 
 ```sh
-brew install --cask tjcrone/unquarantined/codex
-brew install --cask tjcrone/unquarantined/claude-code
+brew install --cask tjcrone/homebrew/codex
+brew install --cask tjcrone/homebrew/claude-code
 ```
 
 If the official casks are already installed, switch their recorded source with
 `reinstall`:
 
 ```sh
-brew reinstall --cask tjcrone/unquarantined/codex
-brew reinstall --cask tjcrone/unquarantined/claude-code
+brew reinstall --cask tjcrone/homebrew/codex
+brew reinstall --cask tjcrone/homebrew/claude-code
 ```
 
 A fully qualified install also trusts only those named casks on current
@@ -68,10 +69,10 @@ upgrades continue using these definitions.
 You can confirm the source with:
 
 ```sh
-brew info --cask tjcrone/unquarantined/codex tjcrone/unquarantined/claude-code
+brew info --cask tjcrone/homebrew/codex tjcrone/homebrew/claude-code
 ```
 
-The `From:` lines should name `tjcrone/unquarantined`.
+The casks should resolve from `tjcrone/homebrew`.
 
 ## Automatic upgrades
 
@@ -103,7 +104,7 @@ The `Update casks` GitHub Action runs hourly at minute 17 and can also be run
 manually. It:
 
 1. Downloads and patches the current official Codex and Claude Code casks.
-2. Runs the updater and local-upgrade tests.
+2. Runs the complete test suite.
 3. Refuses to publish if the updater changes anything outside the two casks.
 4. Creates one atomic `Update casks from upstream` commit when either cask
    changed.
@@ -123,7 +124,7 @@ To request an immediate check from the command line after the repository is
 published:
 
 ```sh
-gh workflow run update-casks.yml --repo tjcrone/homebrew-unquarantined
+gh workflow run update-casks.yml --repo tjcrone/homebrew
 ```
 
 ## Manual maintenance
@@ -159,8 +160,8 @@ removing this tap:
 ```sh
 brew reinstall --cask homebrew/cask/codex
 brew reinstall --cask homebrew/cask/claude-code
-brew untrust --cask tjcrone/unquarantined/codex tjcrone/unquarantined/claude-code
-brew untap tjcrone/unquarantined
+brew untrust --cask tjcrone/homebrew/codex tjcrone/homebrew/claude-code
+brew untap tjcrone/homebrew
 ```
 
 The next official upgrade may restore the Gatekeeper behavior described above.
